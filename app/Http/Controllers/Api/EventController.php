@@ -5,21 +5,38 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\EventResource;
 use App\Http\Traits\CanLoadRelationships;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\Request;
 use App\Models\Event;
-class EventController extends Controller
+use Illuminate\Routing\Controllers\HasMiddleware;
+use Illuminate\Routing\Controllers\Middleware;
+
+class EventController extends Controller implements HasMiddleware
 {
-   use CanLoadRelationships;
-    
+    use AuthorizesRequests, CanLoadRelationships;
+
+    public static function middleware(): array
+    {
+        return [
+            new Middleware('auth:sanctum', except: ['index', 'show']),
+        ];
+    }
+
+    private array $relations = ['user', 'attendees', 'attendees.user'];
+    /**
+     * Display a listing of the resource.
+     */
     public function index()
     {
-        $relation =['user', 'attendees', 'attendees.user'];
-        $query = $this->loadRelationships(Event::query(), $relation);
+        $query = $this->loadRelationships(Event::query());
+
 
         return EventResource::collection(
-           $query->latest()->paginate()
+            $query->latest()->paginate()
         );
     }
+
+
     
      protected function shouldIncludeRelation(string $relation): bool
      {
@@ -38,6 +55,8 @@ class EventController extends Controller
      */
     public function store(Request $request)
     {
+        $this->authorize('create', Event::class);
+
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
@@ -45,7 +64,7 @@ class EventController extends Controller
             'end_time' => 'required|date|after_or_equal:start_time',
         ]);
 
-        $validated['user_id'] = 1;
+        $validated['user_id'] = $request->user()->id;
         $event = Event::create($validated);
         return new EventResource($event->load('user', 'attendees'));
     }
@@ -57,7 +76,7 @@ class EventController extends Controller
     public function show(Event $event)
     {
         $event->load('user', 'attendees');
-        return new EventResource($event);    
+        return new EventResource($event ->load ('user', 'attendees'));    
     }
 
     /**
@@ -65,7 +84,9 @@ class EventController extends Controller
      */
     public function update(Request $request, Event $event)
     {
-         $validated = $request->validate([
+        $this->authorize('update', $event);
+
+        $validated = $request->validate([
             'name' => 'sometimes|string|max:255',
             'description' => 'nullable|string',
             'start_time' => 'sometimes|date',
@@ -74,7 +95,7 @@ class EventController extends Controller
 
         $event->update($validated);
         $event->load('user', 'attendees');
-        return new EventResource($event);
+        return new EventResource($event ->load('user', 'attendees'));
     }
 
     /**
@@ -82,6 +103,8 @@ class EventController extends Controller
      */
     public function destroy(Event $event)
     {
+        $this->authorize('delete', $event);
+
         $event->delete();
         return response(status: 204);
     }
